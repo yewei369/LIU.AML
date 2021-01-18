@@ -1,0 +1,271 @@
+---
+title: "Lab4_JunLi_0"
+subtitle: "Advanced Machine Learning -- 732A96"
+author: "Jun Li"
+date: '2020-10-11'
+output: pdf_document
+---
+
+
+```{r,eval=T,echo=T,warning=F,message=F}
+library(ggplot2)
+library(kernlab)
+library(AtmRay)
+```
+
+
+## Implementing GP Regression
+### part1+2
+This is posterior distribution given one data point.
+
+```{r,eval=T,echo=T,warning=F,message=F}
+# part 1
+SEkernel<-function(sigmaF=1,l=3){
+  re<-function(x1,x2){  
+    n1 <- length(x1)
+    n2 <- length(x2)
+    K <- matrix(NA,n1,n2)
+    for (i in 1:n2) K[,i] <- sigmaF^2*exp(-0.5*( (x1-x2[i])/l)^2 )
+    return(K)}
+  return(re)}
+
+posteriorGP<-function(X,y,Xstar,sigmaNoise,k){
+  K<-k(X,X)  ## covariance of training X
+  d<-length(X)  ## number of training points
+  L<-t(chol(K+sigmaNoise^2*diag(d)))  ## row 2 in the algorithm in PPT
+  alpha<-solve(t(L),solve(L,y))     ## row 3
+  Kstar<-k(X,Xstar)
+  mean<-t(Kstar)%*%alpha            ## row 4, predictive mean
+  v<-solve(L,Kstar)                 ## row 5
+  var<-k(Xstar,Xstar)-t(v)%*%v       ## row 6, predictive variance
+  log<--0.5*t(y)%*%alpha-sum(diag(log(L)))-0.5*d*log(2*pi)  ## row 7, log marginal likelihood
+  
+  return(list(mean=mean,var=var,log=log))}
+
+# part 2
+k<-SEkernel(sigmaF=1,l=0.3)
+X<-0.4;y<-0.719
+sigmaNoise<-0.1
+Xstar<-seq(-1,1,0.01)#length.out=41)
+pre<-posteriorGP(X,y,Xstar,sigmaNoise,k) # prediction results
+
+plot(Xstar,pre$mean,typ="l",col="green",ylim=c(-2.5,2.5))
+points(X,y,lwd=10)
+lines(Xstar,pre$mean+1.96*sqrt(diag(pre$var)),col="red")
+lines(Xstar,pre$mean-1.96*sqrt(diag(pre$var)),col="red")
+```
+### part 3
+This is posterior distribution given two data points.
+
+```{r,eval=T,echo=T,warning=F,message=F}
+# part 3
+X<-c(X,-0.6);y<-c(y,-0.044)
+pre<-posteriorGP(X,y,Xstar,sigmaNoise,k) # prediction results
+
+plot(Xstar,pre$mean,typ="l",col="green",ylim=c(-2.5,2.5))
+points(X,y,lwd=10)
+lines(Xstar,pre$mean+1.96*sqrt(diag(pre$var)),col="red")
+lines(Xstar,pre$mean-1.96*sqrt(diag(pre$var)),col="red")
+```
+### part 4
+This is posterior distribution given five data points, and hyper-parameters $\sigma_f=1, l=0.3$.
+
+```{r,eval=T,echo=T,warning=F,message=F}
+# part 4
+X<-c(-1.0,-0.6,-0.2,0.4,0.8)
+y<-c(0.768,-0.044,-0.940,0.719,-0.664)
+pre<-posteriorGP(X,y,Xstar,sigmaNoise,k) # prediction results
+
+plot(Xstar,pre$mean,typ="l",col="green",ylim=c(-2.5,2.5))
+points(X,y,lwd=10)
+lines(Xstar,pre$mean+1.96*sqrt(diag(pre$var)),col="red")
+lines(Xstar,pre$mean-1.96*sqrt(diag(pre$var)),col="red")
+```
+
+### part 5
+This is posterior distribution given five data points, and hyper-parameters $\sigma_f=1, l=1$. Comparing with part 4, this curve is smoother due to a larger $l$, which denotes a required distance for prediction varying significantly.
+
+```{r,eval=T,echo=T,warning=F,message=F}
+# part 5
+k<-SEkernel(sigmaF=1,l=1)
+pre<-posteriorGP(X,y,Xstar,sigmaNoise,k) # prediction results
+
+plot(Xstar,pre$mean,typ="l",col="green",ylim=c(-2.5,2.5))
+points(X,y,lwd=10)
+lines(Xstar,pre$mean+1.96*sqrt(diag(pre$var)),col="red")
+lines(Xstar,pre$mean-1.96*sqrt(diag(pre$var)),col="red")
+```
+
+
+
+## GP Regression with kernlab
+### part 1
+
+
+```{r,eval=T,echo=T,warning=F,message=F}
+da<-read.csv("https://github.com/STIMALiU/AdvMLCourse/raw/master/GaussianProcess/Code/TempTullinge.csv", header=TRUE, sep=";")
+n<-nrow(da)  # number of observations
+time<-c(1:n)
+day<-time%%365;day[day==0]<-365
+temp<-da[,2]
+nyda<-cbind(temp=temp,time,day)
+nyda<-as.data.frame(nyda[seq(1,n,5),])
+temp<-nyda$temp;time<-nyda$time;day<-nyda$day
+n<-nrow(nyda) # number of train observations
+
+mykernel<-function(sigmaf=1,ell=0.5){
+  re<-function(x,y) return(sigmaf^2*exp(-crossprod(x-y)/(2*ell^2)))
+  class(re)<-"kernel"
+  return(re)}
+
+
+print("Here comes the test kernel for one-dimension points:")
+kernelMatrix(kernel=mykernel(),x=1,y=2)
+cat("\n")
+print("Here comes the test kernel for three-dimension points:")
+kernelMatrix(kernel=mykernel(),x=t(c(1,3,4)),y=t(c(2,3,4)))
+```
+
+
+### part 2
+
+
+```{r,eval=T,echo=T,warning=F,message=F}
+lmfit<-lm(temp~time+I(time^2),nyda)
+trainVar<-var(lmfit$residuals)
+gpfit<-gausspr(temp~time,data=nyda,kernel=mykernel(20,0.2),var=trainVar)
+trainPred<-predict(gpfit,time)
+
+g<-ggplot(nyda,aes(x=time))+
+    geom_line(aes(y=trainPred,colour="GP time"))+
+    geom_point(aes(y=temp,colour="train data"))+
+    labs(y="Temperature",x ="Time")
+g+scale_colour_manual(values = c("red","black"))
+```
+
+
+### part 3
+
+
+```{r,eval=T,echo=T,warning=F,message=F}
+lmfit1<-lm(scale(temp)~scale(time)+I(scale(time)^2),nyda)
+trainVar1<-var(lmfit1$residuals)
+
+k<-SEkernel(sigmaF=20,l=0.2) #mykernel(20,0.2) ## kernel function
+x<-scale(nyda$time)
+xs<-scale(nyda$time) # XStar.
+y<-scale(nyda$temp)
+
+pre1<-posteriorGP(x,y,xs,trainVar1,k) # prediction results
+
+g1<-g+
+    geom_line(aes(y=pre1$mean*sd(temp)+mean(temp)-1.96*sd(temp)*sqrt(diag(pre1$var)),colour="GP time 95%"))+
+    geom_line(aes(y=pre1$mean*sd(temp)+mean(temp)+1.96*sd(temp)*sqrt(diag(pre1$var)),colour="GP time 95%"))
+g1+scale_colour_manual(values = c("red","blue","black"))
+```
+
+
+### part 4
+It shows that model with days as predictor represents the seasonal behaviour better but underestimates the trend through time, which is captured by the time model.
+
+
+```{r,eval=T,echo=T,warning=F,message=F}
+#library(tidypaleo)
+lmfit2<-lm(temp~day+I(day^2),nyda)
+trainVar2<-var(lmfit2$residuals)
+gpfit2<-gausspr(temp~day,data=nyda,kernel=mykernel(20,0.2),var=trainVar2)
+trainPred2<-predict(gpfit2,day)
+
+dayaxis<-as.character(day)
+subday<-seq(1,438,length.out = 12)
+
+#model <-age_depth_model(depth =day,age = time)
+g2<-g1+
+    geom_line(aes(y=trainPred2,colour="GP day"))+
+    scale_x_continuous(sec.axis = dup_axis(breaks=time[subday],
+                                          labels = parse(text=dayaxis[subday]),
+                                          name="day"))
+g2+scale_colour_manual(values = c("green","red","blue","black"))
+   #scale_x_age_depth(model, depth_name = "day")
+   
+```
+
+### part 5
+Comparing with previous models, the new model with periodic kernel shows a better prediction, considering both periodic/seasonal behaviour and historic trend such as global warming.
+
+```{r,eval=T,echo=T,warning=F,message=F}
+newkernel<-function(sigmaf=20,ell1=1,ell2=10){
+  d<-365/sd(time)
+  re<-function(x,y) return(sigmaf^2*exp(-2*sin(pi* sqrt(crossprod(x-y))/d )^2/(ell1^2))*
+                           exp( -crossprod(x-y)/(2*ell2^2) ))
+  class(re)<-"kernel"
+  return(re)}
+
+
+gpfit3<-gausspr(temp~time,data=nyda,kernel=newkernel(),var=trainVar)
+trainPred3<-predict(gpfit3,time)
+
+g3<-g2+
+    geom_line(aes(y=trainPred3,colour="GP time periodic"))
+g3+scale_colour_manual(values = c("green","red","blue","orange","black"))
+```
+
+## GP Classification with kernlab
+### part 1
+
+
+```{r,eval=T,echo=T,warning=F,message=F}
+data <- read.csv("https://github.com/STIMALiU/AdvMLCourse/raw/master/GaussianProcess/Code/banknoteFraud.csv", header=FALSE, sep=",")
+names(data) <- c("varWave","skewWave","kurtWave","entropyWave","fraud")
+data[,5] <- as.factor(data[,5])
+set.seed(111) 
+SelectTraining <- sample(1:dim(data)[1], size = 1000,replace = FALSE)
+train<-data[SelectTraining,]
+test<-data[-SelectTraining,]
+
+fit1<-gausspr(fraud~varWave+skewWave,data=train) ## dit the model
+
+x1 <- seq(min(train[,1]),max(train[,2]),length=100)
+x2 <- seq(min(train[,1]),max(train[,2]),length=100)
+gridPoints <- meshgrid(x1, x2)
+gridPoints <- cbind(c(gridPoints$x), c(gridPoints$y))
+
+gridPoints <- data.frame(gridPoints)
+names(gridPoints) <- names(train)[1:2]
+probPreds1 <- predict(fit1, gridPoints, type="probabilities")
+
+contour(x1,x2,matrix(probPreds1[,2],100,byrow = TRUE), 20, xlab = "varWave", ylab = "skewWave", main = 'Prob(fraud) - fraud is red')
+points(train[train[,5]==1,1],train[train[,5]==1,2],col="red")
+points(train[train[,5]==0,1],train[train[,5]==0,2],col="green")
+
+
+ta<-table(predict(fit1,train[,1:2]), train[,5]) # confusion matrix
+print("Here comes the confusion matrix:")
+ta
+print(paste("Training accuracy is",sum(diag(ta))/sum(ta)))
+```
+
+
+
+### part 2
+
+
+```{r,eval=T,echo=T,warning=F,message=F}
+ta<-table(predict(fit1,test[,1:2]), test[,5]) # confusion matrix
+print("Here comes the confusion matrix:")
+ta
+print(paste("Test accuracy is",sum(diag(ta))/sum(ta)))
+```
+
+
+
+### part 3
+Using all four variables a much higher test accuracy has been reached 99%, comparing with 92% from model with only two variables.
+
+```{r,eval=T,echo=T,warning=F,message=F}
+fit2<-gausspr(fraud~.,data=train) ## dit the model
+ta<-table(predict(fit2,test[,1:4]), test[,5]) # confusion matrix
+print("Here comes the confusion matrix:")
+ta
+print(paste("Test accuracy is",sum(diag(ta))/sum(ta)))
+```

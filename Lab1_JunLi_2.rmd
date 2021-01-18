@@ -1,0 +1,206 @@
+---
+title: "Lab1_JunLi_2"
+subtitle: "Advanced Machine Learning -- 732A96"
+author: "Jun Li"
+date: '2020-09-17'
+output: pdf_document
+---
+
+
+```{r,eval=TRUE,echo=FALSE,warning=FALSE,message=FALSE}
+RNGversion('3.5.1')
+library(bnlearn)
+#source("https://bioconductor.org/biocLite.R")
+#biocLite("RBGL")
+#BiocManager::install("RBGL")
+#BiocManager::install("gRbase")
+library(gRain)
+```
+
+## Part 1: 
+It shows as below that running multiple times of HC algorithm presents different results, which is resulted from its inherent characteristic of starting with random points and ending with a potential local optimal. (There is an adjacency between node A and T in the first network but absent in the second. While score of BIC is used in the first and BDeu score in the second)  
+
+
+```{r,eval=TRUE,echo=TRUE,warning=FALSE}
+data("asia")
+set.seed(1234)
+
+same_adj<-function (x,y){ ## x,y are arcs matrix of DAGs, check if they have same adjacencies
+  re<-NULL
+  x<-cbind(x,rep(FALSE,nrow(x)))
+  y<-cbind(y,rep(FALSE,nrow(y)))
+
+  for(i in 1:nrow(x)){
+    for(j in 1:nrow(y)){
+      if(setequal(x[i,],y[j,])) {y[j,3]<-TRUE
+                                 x[i,3]<-TRUE}
+    }}
+  if(sum(as.logical(x[,3]))==nrow(x) && sum(as.logical(y[,3]))==nrow(y)) re<-TRUE else
+    re<-FALSE
+  return (re)}
+
+colliders<-function(m){## create colliders list
+    name<-NULL;num<-NULL
+    for(i in 1:nrow(m)){
+      if(!(m[i,2] %in% name)) {
+        name<-c(name,m[i,2])
+        num<-c(num,1)}
+      else {ind<-which(m[i,2]==name)
+            num[ind]=num[ind]+1}}
+    
+    return (name[which(num>1)])
+  }
+
+
+same_col<-function (x,y){## check if they have same colliders
+  if(setequal(colliders(x),colliders(y))) return (TRUE) else
+    return (FALSE)}
+
+
+dag<-hc(asia,score="bic")
+a<-alpha.star(dag,asia)  ## imaginary sample size
+#hc(asia,start=NULL,restart=NULL,score="bde",iss=1)
+print("Here comes one learned structure:")
+net1<-hc(asia,start=NULL,restart=0,score="bic")#,iss=a)
+plot(net1)
+x<-arcs(net1)
+
+repeat{
+net2<-hc(asia,start=NULL,restart=0,score="bde",iss=a)
+y<-arcs(net2)
+re<-same_adj(x,y) && setequal(vstructs(net1),vstructs(net2))#same_col(x,y)
+#re<-all.equal(net1,net2) 
+#Sys.sleep(1)
+if(re!=TRUE) break}
+
+print("Here comes another learned structure:")
+plot(net2)
+
+#data(learning.test)
+#res = gs(learning.test)
+#cpdag(res)
+#vstructs(res)
+```
+
+## Part 2
+It shows that the learnt structure and parameters have the same prediction accuracy of 72% and confusion matrix as the true structure. The reason is that both graphs are actually equivalent DAGs, even though there are only one arc different.
+
+
+```{r,eval=TRUE,echo=TRUE,warning=FALSE}
+set.seed(1234)
+len<-nrow(asia)
+train<-sample(len,len*0.8)
+test<-c(1:len)[-train]
+net<-hc(asia,start=NULL,restart=20,score="bde",iss=a)  ## learnt structure
+fit1=bn.fit(net,asia[train,]) ## learn parameters
+fit2<-as.grain(fit1) ## convert to grain object
+fit2<-compile(fit2)
+
+predict<-NULL
+for(i in 1:length(test)){
+  ke<-list(A=NULL,T=NULL,L=NULL,B=NULL,E=NULL,X=NULL,D=NULL)
+  for(j in c("A","T","L","B","E","X","D")) ke[j]<-ifelse(asia[test[i],j]=="yes","yes","no")
+  prob<-querygrain(fit2, evidence=ke,nodes="S") # probability of response
+  predict<-c(predict,names(which.max(prob$S))) 
+  #bn1 <- setFinding(fit2, nodes=names(asia)[-2], states=values)
+  #querygrain(bn1)
+}
+
+truth<-asia[test,2] ## Ground truth of S
+
+print("Here comes the learnt DAG:")
+plot(net)
+print("Here comes the confusion matrix from learnt structure:")
+table(predict,truth)
+
+## Given truth structure, learn parameters
+dag=model2network("[A][S][T|A][L|S][B|S][D|B:E][E|T:L][X|E]")  # ground truth DAG
+fit1=bn.fit(dag,asia[train,]) ## learn parameters
+fit2<-as.grain(fit1) ## convert to grain object
+fit2<-compile(fit2)
+
+predict<-NULL
+for(i in 1:length(test)){
+  ke<-list(A=NULL,T=NULL,L=NULL,B=NULL,E=NULL,X=NULL,D=NULL)
+  for(j in c("A","T","L","B","E","X","D")) ke[j]<-ifelse(asia[test[i],j]=="yes","yes","no")
+  prob<-querygrain(fit2, evidence=ke,nodes="S") # probability of response
+  predict<-c(predict,names(which.max(prob$S))) 
+  #bn1 <- setFinding(fit2, nodes=names(asia)[-2], states=values)
+  #querygrain(bn1)
+}
+
+
+print("Here comes the true DAG:")
+plot(dag)
+print("Here comes the confusion matrix from true structure:")
+table(predict,truth)
+
+#print(paste("These DAGs have ",all.equal(net,dag),sep=""))
+```
+
+
+## Part 3
+Markov Blanket presents prediction accuracy of 72%.
+
+```{r,eval=TRUE,echo=TRUE,warning=FALSE}
+par<-mb(net,"S")
+trainda<-asia[train,c(par,"S")]
+
+####
+predict<-NULL
+for(i in 1:length(test)){
+  ke<-list(A=NA,T=NA,L=NA,B=NA,E=NA,X=NA,D=NA)
+  for(j in par) ke[j]<-ifelse(asia[test[i],j]=="yes","yes","no")
+  prob<-querygrain(fit2, evidence=ke,nodes="S") # probability of response
+  predict<-c(predict,names(which.max(prob$S))) 
+  #bn1 <- setFinding(fit2, nodes=names(asia)[-2], states=values)
+  #querygrain(bn1)
+}
+####
+
+truth<-asia[test,2]
+print("Here comes the confusion matrix estimated by Markov blanket:")
+table(predict,truth)
+```
+
+
+
+## Part 4
+The Naive Bayes presents prediction accuracy of 69.1%.
+
+```{r,eval=TRUE,echo=TRUE,warning=FALSE}
+e<-empty.graph(names(asia)) # empty graph with same nodes as asia
+edges = matrix(c("S", "A", 
+                 "S", "B", 
+                 "S", "D", 
+                 "S", "X", 
+                 "S", "E", 
+                 "S", "L", 
+                 "S", "T"),
+           ncol = 2, byrow = TRUE,
+           dimnames = list(NULL, c("from", "to")))
+arcs(e)<-edges
+print("Here comes the hand-structured graph:")
+plot(e)
+
+fit1=bn.fit(e,asia[train,])
+fit2<-as.grain(fit1)
+fit2<-compile(fit2)
+
+predict<-NULL
+for(i in 1:length(test)){
+  ke<-list(A=NULL,T=NULL,L=NULL,B=NULL,E=NULL,X=NULL,D=NULL)
+  for(j in c("A","T","L","B","E","X","D")) ke[j]<-ifelse(asia[test[i],j]=="yes","yes","no")
+  prob<-querygrain(fit2, evidence=ke,nodes="S") # probability of response
+  predict<-c(predict,names(which.max(prob$S))) 
+  #bn1 <- setFinding(fit2, nodes=names(asia)[-2], states=values)
+  #querygrain(bn1)
+}
+truth<-asia[test,2]
+print("Here comes the confusion matrix by Naive Bayes:")
+table(predict,truth)
+```
+
+
+## Part 5
+Original graph (ex 2) and its Markov blanket version (ex 3) present the same confusion matrix, which differs from but have higher accuracy than Naive Bayes estimation (ex 4). This can be explained by naively ignoring potential interactions between predictive variables, since Naive Bayes assumes that the predictive variables are independent which conflicts with the truth (Besides, many of the variables combinations may not be included in the dataset, and much larger dataset is also needed so that it works well). While the reason why the MB gives the same result as true graph is that MB gives all the information necessary to predict its value.

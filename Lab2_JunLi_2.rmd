@@ -1,0 +1,158 @@
+---
+title: "Lab2_JunLi_2"
+subtitle: "Advanced Machine Learning -- 732A96"
+author: "Jun Li"
+date: '2020-09-17'
+output: pdf_document
+---
+
+
+```{r,eval=TRUE,echo=FALSE,warning=FALSE,message=FALSE}
+RNGversion('3.5.1')
+library(HMM)
+library(entropy)
+```
+
+
+## Part 1: 
+ 
+
+```{r,eval=TRUE,echo=TRUE,warning=FALSE}
+trans.matrix<-matrix(0,10,10)
+for(i in 1:10) {if(i<10) trans.matrix[i,c(i,i+1)]=0.5
+                else {trans.matrix[i,i]=0.5
+                      trans.matrix[i,1]=0.5}}  
+emission.matrix<-matrix(0,10,10)
+for(i in 1:10) {a<-((i+10)-2)%%10
+                if(a==0) a<-10
+                b<-((i+10)+2)%%10
+                if(b==0) b<-10
+                if(a>b) ind<-c(1:b,a:10) else 
+                  ind<-c(a:b)
+                emission.matrix[i,ind]=0.2}
+
+hmm<-initHMM(States=as.character(c(1:10)),Symbols=as.character(c(1:10)),
+         transProbs=trans.matrix,emissionProbs=emission.matrix)
+print("Here comes the built HMM:")
+print(hmm)
+```
+
+## Part 2
+
+
+```{r,eval=TRUE,echo=TRUE,warning=FALSE}
+set.seed(1234)
+sim<-simHMM(hmm,100)
+print("Here come the simulations:")
+sim
+```
+
+
+## Part 3+4
+The accuracies of filtered, smoothed and probable path from Viterbi are respectively 0.38, 0.77, 0.49.
+
+```{r,eval=TRUE,echo=TRUE,warning=FALSE}
+# Filtering
+forward<-exp(forward(hmm,sim$observation))
+filtering<-prop.table(forward,1)
+filtering<-prop.table(filtering,2) ## filtering probabilities
+
+predFilter<-NULL
+for(i in 1:100) predFilter<-c(predFilter,which.max(filtering[,i]))
+predFilter<-as.character(predFilter)  ## predictions
+acFilter<-sum(as.character(predFilter)==sim$states)/100
+print("The filtered predictions are:")
+print(predFilter)
+print(paste("The filtered accuracy is: ",acFilter,sep=""))
+cat("\n")
+
+# Smoothing
+backward<-exp(backward(hmm,sim$observation))
+smoothing<-prop.table(prop.table(forward*backward,1),2) ## smoothing probabilities
+
+predSmooth<-NULL
+for(i in 1:100) predSmooth<-c(predSmooth,which.max(smoothing[,i]))
+predSmooth<-as.character(predSmooth)  ## predictions
+acSmooth<-sum(as.character(predSmooth)==sim$states)/100
+print("The smoothed predictions are:")
+print(predSmooth)
+print(paste("The smoothed accuracy is: ",acSmooth,sep=""))
+cat("\n")
+
+# Most probable path
+path<-viterbi(hmm,sim$observation)
+acPath<-sum(path==sim$states)/100
+print("The most probable path is:")
+print(path)
+print(paste("The path accuracy is: ",acPath,sep=""))
+```
+
+
+
+## Part 5
+With new simulations, the accuracies of filtered, smoothed and probable path from Viterbi are respectively 0.46, 0.64, 0.51. The smoothed distribution is more accurate than filtered because it uses more emissions to predict one state at a time point, while also higher accuracy than Viterbi because the same amount of data is used to maximize the likelihood of total sequence of 100 states instead of individual points like in smoothing, which compensates of accuracy of separate states.
+
+```{r,eval=TRUE,echo=TRUE,warning=FALSE}
+set.seed(4321)
+sim<-simHMM(hmm,100)
+print("The new simulations are:")
+print(sim)
+
+# Filtering
+forward<-exp(forward(hmm,sim$observation))
+filtering<-prop.table(forward,1)
+filtering<-prop.table(filtering,2) ## filtering probabilities
+
+predFilter<-NULL
+for(i in 1:100) predFilter<-c(predFilter,which.max(filtering[,i]))
+predFilter<-as.character(predFilter)  ## predictions
+acFilter<-sum(as.character(predFilter)==sim$states)/100
+print("The filtered predictions are:")
+print(predFilter)
+print(paste("The filtered accuracy is: ",acFilter,sep=""))
+cat("\n")
+
+# Smoothing
+backward<-exp(backward(hmm,sim$observation))
+smoothing<-prop.table(prop.table(forward*backward,1),2) ## smoothing probabilities
+
+predSmooth<-NULL
+for(i in 1:100) predSmooth<-c(predSmooth,which.max(smoothing[,i]))
+predSmooth<-as.character(predSmooth)  ## predictions
+acSmooth<-sum(as.character(predSmooth)==sim$states)/100
+print("The smoothed predictions are:")
+print(predSmooth)
+print(paste("The smoothed accuracy is: ",acSmooth,sep=""))
+cat("\n")
+
+# Most probable path
+path<-viterbi(hmm,sim$observation)
+acPath<-sum(path==sim$states)/100
+print("The most probable path is:")
+print(path)
+print(paste("The path accuracy is: ",acPath,sep=""))
+```
+
+
+## Part 6
+"In information theory, the entropy of a random variable is the average level of "information", "surprise", or "uncertainty" inherent in the variable's possible outcomes". The higher entropy the more uncertainty in the counts/probabilities. The graph below is based on the second simulations in part 5 and show that the entropy/uncertainty reaches its minimum level about every 5 observations, which can be explained by the inherent characteristic of the emission matrix that after the previous 4 states the fifth state becomes certain. But it does not mean that the certainty/uncertainty of states gets larger/lower through time.
+
+
+```{r,eval=TRUE,echo=TRUE,warning=FALSE}
+entropy<-NULL
+for(i in 1:100) entropy<-c(entropy,entropy.empirical(filtering[,i]))
+plot(entropy,type="l")
+
+```
+
+
+## Part 7
+Based on the second simulation, the 101th state has largest probability of being 10, and then 1 and 9.
+
+```{r,eval=TRUE,echo=TRUE,warning=FALSE}
+pred101<-filtering[,100]*trans.matrix
+pred101<-colSums(pred101)  ## pred101<-t(trans.matrix)%*%filtering[,100]
+print(pred101)
+barplot(pred101,names.arg=c(1:10),main="Distribution of state 101")
+```
+
